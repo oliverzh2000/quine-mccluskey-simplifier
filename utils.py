@@ -1,11 +1,69 @@
 import copy
-import itertools
-import numpy as np
 
 CONST = ("1", "0")
 OP = ("+", ".")
 UNARY_OP = ("~",)
 PAREN = ("(", ")")
+
+
+class BooleanFunction:
+    def __init__(self, tree):
+        self.tree = tree
+        self.ordered_unique_vars = self.ordered_unique_vars()
+        self.arity = len(self.ordered_unique_vars)
+        self.minterms = self.minterms()
+
+    def evaluate(self, var_values):
+        return self._evaluate_helper(self.tree, dict(zip(self.ordered_unique_vars,
+                                                         [True if value == "1" else False for value in var_values])))
+    @property
+    def minterm_bitstrings(self):
+        return [self.minterm_as_bitstring(minterm) for minterm in self.minterms]
+
+    @staticmethod
+    def _evaluate_helper(node, var_values_mapping):
+        if node.is_terminal():
+            if node.value in CONST:
+                return node.value == "1"
+            elif node.value in var_values_mapping:
+                return var_values_mapping[node.value]
+            else:
+                raise ValueError("Invalid terminal value: " + str(node.value))
+        elif node.value == "+":
+            return any(BooleanFunction._evaluate_helper(child, var_values_mapping) for child in node.children)
+        elif node.value == ".":
+            return all(BooleanFunction._evaluate_helper(child, var_values_mapping) for child in node.children)
+        elif node.value == "~":
+            return not BooleanFunction._evaluate_helper(node.child, var_values_mapping)
+        else:
+            raise ValueError("Invalid node value: " + str(node.value))
+
+    def minterms(self):
+        minterms = []
+        if self.arity == 0:
+            return []
+        for i in range(2 ** self.arity):
+            if self.evaluate(self.minterm_as_bitstring(i)):
+                minterms.append(i)
+        return minterms
+
+    def minterm_as_bitstring(self, minterm):
+        return bin(minterm)[2:].rjust(self.arity, "0")
+
+    def implicant_as_product(self, implicant):
+        """example: "0110" -> "~A.B.C.~D"""
+        var_states = []
+        for state, var in zip(implicant, self.ordered_unique_vars):
+            if state == "0":
+                var_states.append("~" + var)
+            elif state == "1":
+                var_states.append(var)
+        if self.arity == 1 and implicant == "-":
+            return "1"
+        return ".".join(var_states)
+
+    def ordered_unique_vars(self):
+        return sorted(filter(lambda char: char.isalpha(), set(self.tree.preorder_traversal())))
 
 
 class Algebra:
@@ -67,6 +125,7 @@ class Algebra:
 
 class Parser:
     def __init__(self, string):
+        string = string.replace(" ", "")
         Parser.is_valid_token_seq(string)
         self.tokens = string
         self.token_index = 0
@@ -132,7 +191,6 @@ class Parser:
         print(str(parser))
 
 
-
 class Node:
     def __init__(self, value=None, children=None):
         self.value = value
@@ -187,11 +245,6 @@ class Node:
     def children_hashes(self):
         return [hash(child) for child in self.children]
 
-    # def __eq__(self, other):
-    #     self.canonicalize()
-    #     other.canonicalize()
-    #     return self._preorder_traversal() == other._preorder_traversal()
-
     def __eq__(self, other):
         return hash(self) == hash(other)
 
@@ -208,13 +261,6 @@ class Node:
 
     def __str__(self):
         return self.__str__helper(indent=0).strip("\n")
-        # vertical_str = Node.__str__helper(self, indent=0)
-        # longest_line_len = max(len(line) for line in vertical_str.splitlines())
-        # vertical_str = [line.ljust(longest_line_len) for line in vertical_str.splitlines()]
-        # horizontal_lines = zip(*[list(line) for line in vertical_str])
-        # print("\n".join("   ".join(line).strip("\n") for line in horizontal_lines))
-        # exit()
-        # return "\n".join(itertools.chain(*zip(*[list(line) for line in vertical_str])))
 
     def __str__helper(self, indent):
         output = "  " * indent + str(self.value) + "\n"
@@ -223,13 +269,6 @@ class Node:
         for child in self.children:
             output += Node.__str__helper(child, indent + 1)
         return output
-        # output = ""
-        # if len(self.children) >= 1:
-        #     output += self.children[0].__str__helper(indent + 1)
-        # output += " " * indent + str(self.value) + "\n"
-        # for child in self.children[1:]:
-        #     output += child.__str__helper(indent + 1)
-        # return output
 
     def __hash__(self):
         self.canonicalize()
@@ -240,11 +279,3 @@ class Node:
             return self.value
         else:
             return self.value + "".join(child.preorder_traversal() for child in self.children)
-
-
-def main():
-    pass
-
-
-if __name__ == "__main__":
-    main()
