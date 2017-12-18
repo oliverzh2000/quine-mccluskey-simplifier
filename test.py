@@ -2,6 +2,7 @@ from unittest import TestCase
 
 from quine_mccluskey import *
 from utils import *
+from utils import PrimeImplicantTable
 
 
 class TestParser(TestCase):
@@ -10,6 +11,21 @@ class TestParser(TestCase):
         self.assertEqual(Parser("~~A").syntax_tree, Node("~", [Node("~", [Node("A")])]))
 
 class TestNode(TestCase):
+    def test___eq__basic(self):
+        self.assertEqual(Node("A"), Node("A"))
+        self.assertEqual(Node("A", [Node("B"), Node("C")]), Node("A", [Node("C"), Node("B")]))
+        self.assertNotEqual(Node("A"), Node("B"))
+        self.assertNotEqual(Node("A", [Node("B"), Node("C")]), Node("A", [Node("C"), Node("C")]))
+
+    def test___eq__advanced(self):
+        tree1 = Parser("((((0.A)+C).1)+A).(C+(E.D))").syntax_tree
+        tree2 = Parser("(C+(D.E)).(A+((C+(A.0)).1))").syntax_tree
+        self.assertEqual(tree1, tree2)
+
+        tree1 = Parser("((((0.A)+C).1)+A).(C+(E.D))").syntax_tree
+        tree2 = Parser("(C+(D.E)).(A+((C+(A.0)).0))").syntax_tree
+        self.assertNotEqual(tree1, tree2)
+
     def test_is_terminal(self):
         self.assertFalse(Node("+", [Node(1), Node(0)]).is_terminal())
         self.assertTrue(Node(0).is_terminal())
@@ -29,21 +45,6 @@ class TestNode(TestCase):
         node.replace_with(Node("A", [Node("B"), Node("C")]))
         self.assertEqual(node.value, "A")
         self.assertEqual(node.children_values(), ["B", "C"])
-
-    def test___eq__basic(self):
-        self.assertEqual(Node("A"), Node("A"))
-        self.assertEqual(Node("A", [Node("B"), Node("C")]), Node("A", [Node("C"), Node("B")]))
-        self.assertNotEqual(Node("A"), Node("B"))
-        self.assertNotEqual(Node("A", [Node("B"), Node("C")]), Node("A", [Node("C"), Node("C")]))
-
-    def test___eq__advanced(self):
-        tree1 = Parser("((((0.A)+C).1)+A).(C+(E.D))").syntax_tree
-        tree2 = Parser("(C+(D.E)).(A+((C+(A.0)).1))").syntax_tree
-        self.assertEqual(tree1, tree2)
-
-        tree1 = Parser("((((0.A)+C).1)+A).(C+(E.D))").syntax_tree
-        tree2 = Parser("(C+(D.E)).(A+((C+(A.0)).0))").syntax_tree
-        self.assertNotEqual(tree1, tree2)
 
     def test__hash__does_not_modify(self):
         node = Parser("(~B+(C.D)).(A+B)").syntax_tree
@@ -70,17 +71,6 @@ class TestAlgebra(TestCase):
         Algebra.reduce_distributive(node)
         self.assertEqual(node, Parser("A+(B.C)").syntax_tree)
 
-    #
-    # def test_evaluate(self):
-    #     node = Parser("A+((~B).C.1)").syntax_tree
-    #     self.assertTrue(Algebra.evaluate(node, {"A": True, "B": False, "C": False}))
-    #     self.assertFalse(Algebra.evaluate(node, {"A": False, "B": True, "C": False}))
-    #
-    # def test_truth_table(self):
-    #     node = Parser("A+B+C+D").syntax_tree
-    #     ordered_vars, truth_values = Algebra.truth_table(node)
-    #     self.assertEqual(ordered_vars, ["A", "B", "C", "D"])
-    #     self.assertEqual(truth_values, [True] * )
 
 class TestBooleanFunction(TestCase):
     def test_minterms(self):
@@ -90,9 +80,11 @@ class TestBooleanFunction(TestCase):
         boolean_function = BooleanFunction(Parser("(A.~B)+(~A.B)").syntax_tree)
         self.assertEqual(boolean_function.minterms, [1, 2])
 
-    def test_implicant_to_product(self):
+    def test_bitstring_and_products(self):
         boolean_function = BooleanFunction(Parser("A+B+C+D").syntax_tree)
-        self.assertEqual(boolean_function.implicant_as_product("0110"), "~A.B.C.~D")
+        self.assertEqual(boolean_function.bitstring_as_product("0110"), "~A.B.C.~D")
+        self.assertEqual(boolean_function.product_as_bitstring("~A.B.C.~D"), "0110")
+
 
 
 class TestQM(TestCase):

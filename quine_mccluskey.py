@@ -1,7 +1,6 @@
 import itertools
-from random import Random
 
-from utils import BooleanFunction, Parser
+from utils import BooleanFunction, Parser, PrimeImplicantTable
 
 
 class QM:
@@ -37,11 +36,6 @@ class QM:
     def essential_prime_implicants(self, verbose):
         essential_prime_implicants = set()
 
-        # # debuggin.
-        # minterms.remove("0011")
-        # minterms.remove("0100")
-        # prime_implicants = ["0--0", "-1-0", "001-", "010-", "-011", "1-11", "111-"]
-
         pit = PrimeImplicantTable(self.bool_fn.minterm_bitstrings, self.prime_implicants())
 
         for i in range(10000):
@@ -57,19 +51,16 @@ class QM:
                     essential_prime_implicants.update(new_essential_prime_implicants)
                 else:
                     # Arbitrary designate one of the prime implicants as essential.
-                    print("penisasdlkfja;lsdkjf;alskdjfa;lsdkjfa;lskdjflksdj")
                     new_essential_prime_implicants.update(pit.prime_implicants[0])
                     pit.remove_rows([0])
                 essential_prime_implicants.update(QM.elim_essential_cols(pit))
-                print("essential prime implicants:", essential_prime_implicants)
-                # print(pit)
-                print("dominating row removals:", QM.elim_dominating_rows(pit))
-                # print(pit)
-                print("dominated col removals:", QM.elim_dominated_cols(pit))
-                # print(pit)
+                if verbose:
+                    print("essential prime implicants:", essential_prime_implicants)
+                    print("dominating row removals:", QM.elim_dominating_rows(pit))
+                    print("dominated col removals:", QM.elim_dominated_cols(pit))
                 if pit.n_rows == 0 or pit.n_cols == 0:
                     break
-            except IndexError:
+            except IndexError:  # Because the prime implicant table is empty.
                 break
         return essential_prime_implicants
 
@@ -80,13 +71,15 @@ class QM:
         if self.bool_fn.arity > 0:
             essential_prime_implicants = self.essential_prime_implicants(verbose)
             if essential_prime_implicants:
-                return " + ".join(self.bool_fn.implicant_as_product(implicant) for implicant in essential_prime_implicants)
+                return " + ".join(
+                    self.bool_fn.bitstring_as_product(implicant) for implicant in essential_prime_implicants)
             return "0"
         return self.bool_fn.evaluate(var_values="")
 
     @staticmethod
     def elim_essential_cols(pit):
-        # essential prime implicants.
+        """Remove and return the essential columns.
+        (i.e. the prime implicants that cover minterms no other prime implicant covers."""
         essential_pis = set()
         row_removals = set()
         col_removals = set()
@@ -108,8 +101,9 @@ class QM:
 
     @staticmethod
     def elim_dominating_rows(pit):
+        """Remove the dominating rows.
+        (i.e. the minterms that are covered by more prime implicants than necessary."""
         row_removals = set()
-
         for row_index in range(pit.n_rows):
             for other_row_index in range(row_index + 1, pit.n_rows):
                 dominance_rel = QM.order_by_dominance(pit.row(row_index), pit.row(other_row_index))
@@ -124,6 +118,8 @@ class QM:
 
     @staticmethod
     def elim_dominated_cols(pit):
+        """Remove the dominated columns.
+        (i.e. the prime implicants that are already covered by a more general prime implicant."""
         col_removals = set()
         for col_index in range(pit.n_cols):
             for other_col_index in range(col_index + 1, pit.n_cols):
@@ -139,32 +135,30 @@ class QM:
 
     @staticmethod
     def differs_by_one_char(x, y):
-        """Returns True if strings x and y are different in only one char position"""
+        """Returns True if strings x and y are different in exactly one char position."""
         if len(x) != len(y):
             return False
         n_differences = 0
         for char_x, char_y in zip(x, y):
             if char_x != char_y:
                 n_differences += 1
-            if n_differences > 1:
-                return False
         return n_differences == 1
 
     @staticmethod
     def first_diff_replaced_with_dash(x, y):
-        """Return the result of replacing the first differnece between x and y with '-'"""
+        """Return the result of replacing the first difference between strings x and y with '-'."""
         for i in range(len(x)):
             if x[i] != y[i]:
-                x_char_list = list(x)
-                x_char_list[i] = "-"
-                return "".join(x_char_list)
+                x_chars = list(x)
+                x_chars[i] = "-"
+                return "".join(x_chars)
 
     @staticmethod
     def order_by_dominance(x, y):
         """
         Return bool lists x and y as (dominating, dominated) if there is a dominance relationship.
-        Otherwise return None. A list of bool is said to dominate another iff it is True for at least
-        all the corresponding elements in the other list. If x and y dominate each other, x and y
+        Otherwise return None. x is said to dominate y iff x is True for at least
+        all the corresponding elements in y. If x and y dominate each other, x and y
         will be returned in an arbitrary order."""
         if all((not y_element) or x_element for x_element, y_element in zip(x, y)):
             return x, y
@@ -172,77 +166,10 @@ class QM:
             return y, x
 
 
-class PrimeImplicantTable:
-    def __init__(self, minterms, prime_implicants):
-        self.minterms = list(minterms)
-        self.prime_implicants = list(prime_implicants)
-        self.prime_implicant_table = [
-            [self.matches(minterm, prime_implicant) for prime_implicant in self.prime_implicants]
-            for minterm in minterms]
-
-    @property
-    def n_rows(self):
-        return len(self.minterms)
-
-    @property
-    def n_cols(self):
-        return len(self.prime_implicants)
-
-    def col(self, col):
-        # return self.prime_implicants[col], [row[col] for row in self.prime_implicant_table]
-        return [row[col] for row in self.prime_implicant_table]
-
-    def row(self, row):
-        # return self.minterms[row], self.prime_implicant_table[row]
-        return self.prime_implicant_table[row]
-
-    def remove_cols(self, cols):
-        for col in reversed(sorted(cols)):
-            for row in self.prime_implicant_table:
-                row.pop(col)
-            self.prime_implicants.pop(col)
-
-    def remove_rows(self, rows):
-        for row in reversed(sorted(rows)):
-            self.prime_implicant_table.pop(row)
-            self.minterms.pop(row)
-
-    def __str__(self):
-        col_width = len(self.prime_implicants[0]) + 1
-        rows = []
-        rows.append("".join(prime_implicant.ljust(col_width) for prime_implicant in ["", ""] + self.prime_implicants))
-        for i in range(self.n_rows):
-            minterm = self.minterms[i]
-            bool_values = self.row(i)
-            rows.append(str(int(minterm, 2)).ljust(col_width) +
-                        minterm.ljust(col_width) + "".join("|" +
-                                                           ("1" if val else "").ljust(col_width - 1, "_") for val in
-                                                           bool_values))
-        return "\n".join(rows)
-        # for row in self.prime_implicant_table:
-        #     row_copy = [str(x) for x in row]
-        #     row_copy = ["1" if x == "True" else x for x in row_copy]
-        #     row_copy = ["" if x == "False" else x for x in row_copy]
-        #     rows.append("".join((x.ljust(7) for x in row_copy)))
-        # return "\n".join(rows)
-
-    @staticmethod
-    def matches(x, y):
-        """Returns True if all non '-' chars in x and y are equal."""
-        for char_x, char_y in zip(x, y):
-            if not "-" in (char_x, char_y):
-                if char_x != char_y:
-                    return False
-        return True
-
-
 def main():
-    # quine_mccluskey = QM("(b.~d)+(~a.b.~c)+(~a.~b.c)+(a.c.d)")
-    quine_mccluskey = QM("~((~A.~B) + (~A.~C))")
-    print("simplified:", quine_mccluskey.simplify(verbose=True))
-    # pit = PrimeImplicantTable(minterms=['0010', '0101', '0110', '1011', '1100', '1110', '1111'],
-    #                           prime_implicants=["0--0", "-1-0", "001-", "010-", "-011", "1-11", "111-"])
-    # print(pit)
+#    quine_mccluskey = QM("~(~(A.~(A.B)).~(B.~(A.B)))")
+    quine_mccluskey = QM("~(~(A+B).~(B+C))")
+    print(quine_mccluskey.simplify(verbose=True))
 
 
 if __name__ == "__main__":

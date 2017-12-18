@@ -11,14 +11,17 @@ class BooleanFunction:
         self.tree = tree
         self.ordered_unique_vars = self.ordered_unique_vars()
         self.arity = len(self.ordered_unique_vars)
+        # Minterms are the product terms from the sum of products (SoP) representation of the boolean function.
+        # Each minterm dictates exactly one possible combination of arguments to the function that result in True.
         self.minterms = self.minterms()
+
+    @property
+    def minterm_bitstrings(self):
+        return [self.product_as_bitstring(minterm) for minterm in self.minterms]
 
     def evaluate(self, var_values):
         return self._evaluate_helper(self.tree, dict(zip(self.ordered_unique_vars,
                                                          [True if value == "1" else False for value in var_values])))
-    @property
-    def minterm_bitstrings(self):
-        return [self.minterm_as_bitstring(minterm) for minterm in self.minterms]
 
     @staticmethod
     def _evaluate_helper(node, var_values_mapping):
@@ -43,32 +46,38 @@ class BooleanFunction:
         if self.arity == 0:
             return []
         for i in range(2 ** self.arity):
-            if self.evaluate(self.minterm_as_bitstring(i)):
+            if self.evaluate(self.product_as_bitstring(i)):
                 minterms.append(i)
         return minterms
 
-    def minterm_as_bitstring(self, minterm):
+    def product_as_bitstring(self, minterm):
+        """example: "A.~B.C" -> "101"."""
         return bin(minterm)[2:].rjust(self.arity, "0")
 
-    def implicant_as_product(self, implicant):
-        """example: "0110" -> "~A.B.C.~D"""
+    def bitstring_as_product(self, implicant):
+        """example: "0110" -> "~A.B.C.~D."""
         var_states = []
+        if self.arity == implicant.count("-"):
+            return "1"
         for state, var in zip(implicant, self.ordered_unique_vars):
             if state == "0":
                 var_states.append("~" + var)
             elif state == "1":
                 var_states.append(var)
-        if self.arity == 1 and implicant == "-":
-            return "1"
         return ".".join(var_states)
 
     def ordered_unique_vars(self):
         return sorted(filter(lambda char: char.isalpha(), set(self.tree.preorder_traversal())))
 
 
+# Reduction of boolean function using some algebraic properties.
+# Does not work well, because there is far too much variation in all the
+# possible boolean functions for a simplistic recursive tree pattern matching
+# algorithm to handle.
 class Algebra:
     @staticmethod
     def reduce_not(node):
+        """Reduce double negatives of the form "~~A" -> "A"."""
         if not node.is_terminal():
             if node.value == "~" and node.child.value == "~":
                 node.replace_with(node.child.child)
@@ -78,6 +87,8 @@ class Algebra:
 
     @staticmethod
     def reduce_distributive(node):
+        """Changes trees of the form "(A+B).C" to "(A.C)+(B.C)" and "(A.B)+C" to "(A+C).(B+C)"
+        and vice versa."""
         if node.value in OP and node.children_values() == [Algebra.other_op(node.value)] * len(node.children):
             left_child = node.children[0]
             right_child = node.children[1]
@@ -110,6 +121,8 @@ class Algebra:
 
     @staticmethod
     def reduce_de_morgan(node):
+        """Changes trees of the form "~(A+B)" to "~A.~B" and "~(A.B)" to "~A+~B""
+        and vice versa."""
         if node.value == "~" and node.child.value in OP:
             node.replace_with(Node(Algebra.other_op(node.child.value),
                                    children=[node.unary_combined("~") for node in node.child.children]))
@@ -119,20 +132,20 @@ class Algebra:
 
     @staticmethod
     def other_op(op):
-        """Returns "." if given "+". Returns "+" if given "."."""
+        """Return "." if given "+". Otherwise return "+" if given "."."""
         return OP[OP.index(op) - 1]
 
 
 class Parser:
     def __init__(self, string):
         string = string.replace(" ", "")
-        Parser.is_valid_token_seq(string)
+        Parser.validate(string)
         self.tokens = string
         self.token_index = 0
         self.syntax_tree = self.parse_expr()
 
     @staticmethod
-    def is_valid_token_seq(string):
+    def validate(string):
         valid_tokens = CONST + OP + UNARY_OP + PAREN
         for index, char in enumerate(string):
             if char not in valid_tokens and not char.isalpha():
@@ -152,12 +165,14 @@ class Parser:
             return None
 
     def parse_expr(self):
+        """expr := term (op term)*."""
         current_expr = self.parse_term()
         while self.peek() in OP:
             current_expr = current_expr.binary_combined(operator=self.next(), other=self.parse_term())
         return current_expr
 
     def parse_term(self):
+        """term := '1' | '0' | [a-zA-Z] | '(' expr ')' | unary_op term."""
         if self.peek() in CONST or self.peek().isalpha():
             return Node(self.next())
         elif self.peek() in PAREN:
@@ -181,7 +196,7 @@ class Parser:
             return node.value
         if len(children_strings) == 1:  # unary op.
             return "(" + node.value + children_strings[0] + ")"
-        elif len(children_strings) > 1:
+        elif len(children_strings) > 1:  # binary op.
             return "(" + node.value.join(children_strings) + ")"
 
     @staticmethod
@@ -229,11 +244,9 @@ class Node:
         return len(self.children) == 0
 
     def binary_combined(self, operator, other):
-        # self.value, self.children = operator, [copy.deepcopy(self), other]
         return Node(operator, children=[self, other])
 
     def unary_combined(self, operator):
-        # self.value, self.children = operator, copy.deepcopy(self)
         return Node(operator, children=self)
 
     def replace_with(self, other):
@@ -246,6 +259,8 @@ class Node:
         return [hash(child) for child in self.children]
 
     def __eq__(self, other):
+        """Return True if self and other have the same value and represent the
+        same tree structure (order of children is ignored)."""
         return hash(self) == hash(other)
 
     def canonicalize(self):
@@ -279,3 +294,59 @@ class Node:
             return self.value
         else:
             return self.value + "".join(child.preorder_traversal() for child in self.children)
+
+
+class PrimeImplicantTable:
+    def __init__(self, minterms, prime_implicants):
+        self.minterms = list(minterms)
+        self.prime_implicants = list(prime_implicants)
+        self.prime_implicant_table = [
+            [self.matches(minterm, prime_implicant) for prime_implicant in self.prime_implicants]
+            for minterm in minterms]
+
+    @property
+    def n_rows(self):
+        return len(self.minterms)
+
+    @property
+    def n_cols(self):
+        return len(self.prime_implicants)
+
+    def col(self, index):
+        return [row[index] for row in self.prime_implicant_table]
+
+    def row(self, index):
+        return self.prime_implicant_table[index]
+
+    def remove_cols(self, indices):
+        """Remove the columns and corresponding prime implicants at the indices specified by indices."""
+        for col in reversed(sorted(indices)):
+            for row in self.prime_implicant_table:
+                row.pop(col)
+            self.prime_implicants.pop(col)
+
+    def remove_rows(self, indices):
+        """Remove the rows and corresponding minterms at the indices specified by indices."""
+        for row in reversed(sorted(indices)):
+            self.prime_implicant_table.pop(row)
+            self.minterms.pop(row)
+
+    def __str__(self):
+        col_width = len(self.prime_implicants[0]) + 1
+        rows = ["".join(prime_implicant.ljust(col_width) for prime_implicant in ["", ""] + self.prime_implicants)]
+        for i in range(self.n_rows):
+            minterm = self.minterms[i]
+            bool_values = self.row(i)
+            rows.append(str(int(minterm, 2)).ljust(col_width) +
+                        minterm.ljust(col_width) + "".join("|" +
+                                                           ("1" if val else "").ljust(col_width - 1, "_") for val in
+                                                           bool_values))
+        return "\n".join(rows)
+
+    @staticmethod
+    def matches(x, y):
+        """Returns True if all non '-' chars in x and y are equal."""
+        for char_x, char_y in zip(x, y):
+            if not "-" in (char_x, char_y) and char_x != char_y:
+                return False
+        return True
